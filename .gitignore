@@ -1,0 +1,20 @@
+*.pyc
+*.key
+*.crt
+.env
+/frontend/.coverage
+/scripts/install_scripts/
+
+.DS_Store
+*.egg-info
+
+# React && Node
+frontend/core/static/react-client/*
+!frontend/core/static/react-client/.init
+/react-client/coverage/
+.haste_cache
+/react-client/npm-debug.log
+/react-client/.last_build_time
+
+
+.secret
