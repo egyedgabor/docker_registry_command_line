@@ -3,7 +3,7 @@ uname=$(cat .secret | grep "DOCKER_REGISTRY_USER" \
         | tr "=" " " | awk '{print $2}')
 pass=$(cat .secret | grep "DOCKER_REGISTRY_PASSWORD" \
         | tr "=" " " | awk '{print $2}')
-registry=$(cat .secret | grep "DOCKER_REGISTRY_PASSWORD" \
+registry=$(cat .secret | grep "DOCKER_REGISTRY_URL" \
         | tr "=" " " | awk '{print $2}')
 secret=$uname:$pass
 
