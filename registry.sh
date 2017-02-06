@@ -35,7 +35,7 @@ case "$1" in
       echo "$image"
 
       tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
-        | jq -r 'select(.tags != null) | .tags | join ("\n")')
+        | jq -r 'select(.tags != null) | .tags | join ("\n")' | sort)
 
       error=$(echo $tag_list | grep NAME_UNKNOWN | wc -l)
 
