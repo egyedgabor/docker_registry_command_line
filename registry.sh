@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -e
+
 uname=$(cat .secret | grep "DOCKER_REGISTRY_USER" \
         | tr "=" " " | awk '{print $2}')
 pass=$(cat .secret | grep "DOCKER_REGISTRY_PASSWORD" \
@@ -6,9 +9,11 @@ pass=$(cat .secret | grep "DOCKER_REGISTRY_PASSWORD" \
 registry=$(cat .secret | grep "DOCKER_REGISTRY_URL" \
         | tr "=" " " | awk '{print $2}')
 secret=$uname:$pass
+header='Accept: application/vnd.docker.distribution.manifest.v2+json'
 
 catalog=$(curl -s -u $secret -X GET "$registry/v2/_catalog" \
-| tr ",[,],}" "\n" | sed 's/"//g' | grep -v repositories | tr "\n" " ")
+  | jq -r ' .repositories | join ("\n")')
+
 
 case "$1" in
   -c|--catalog)
@@ -25,21 +30,23 @@ case "$1" in
     if [ "$2" != "" ]; then
       catalog="$2"
     fi
-    for image in $catalog
+    for image in ${catalog}
     do
+      echo "$image"
+
       tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
-        | tr "," "\n" | sed 's/[\(,"}]//g' | sed 's/]//g' | tr "[" "\n" | grep -v 'name\|tags')
-      error="$tag_list | grep NAME_UNKNOWN | wc -l"
-      if [ "$2" != "" ] && [ "$error" != "0" ]; then
+        | jq -r 'select(.tags != null) | .tags | join ("\n")')
+
+      error=$(echo $tag_list | grep NAME_UNKNOWN | wc -l)
+
+      if [ "$2" != "" ] && [ "$error" != 0 ]; then
         echo "Image is not exists"
         exit 1
       else
-        echo $image
         for tag in $tag_list
         do
-        manifest=$(curl -l -k -v -u $secret \
-          -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -I \
-          "$registry/v2/$image/manifests/$tag" 2>/dev/null \
+        manifest=$(curl -l -k -u $secret \
+          -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
           | grep "Docker-Content-Digest" | awk '{ print $2 }' | tr "\r" " ")
           echo "$manifest $tag"
         done
@@ -62,37 +69,53 @@ case "$1" in
   fi
   for image in $images
   do
+    tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
+      | tr "," "\n" | sed 's/[\(,"}]//g' | sed 's/]//g' | tr "[" "\n" | grep -v 'name\|tags')
+    error=$(echo $tag_list | grep NAME_UNKNOWN | wc -l)
+    if [ "$2" != "" ] && [ "$error" != 0 ]; then
+      echo "Image is not exists"
+      exit 1
+    else
+      echo $image
+      list=()
+      for tag in $tag_list
+      do
+      manifest=$(curl -l -k -v -u $secret \
+        -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
+        | grep "Docker-Content-Digest" | awk '{ print $2 }' | tr "\r" " ")
+      list+=("${tag} ${manifest}")
+      done
+    fi
     for tag in $tags
     do
       manifest=$(curl -l -k -v -u $secret \
-        -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -I \
-        "$registry/v2/$image/manifests/$tag" 2>/dev/null \
+        -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
         | grep "Docker-Content-Digest" | awk '{ print $2 }')
-      if [ "$manifest" = "" ]; then
-        echo "invalid tag or image"
-        exit
-      else
-        tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
-          | tr "," "\n" | sed 's/[\(,"}]//g' | sed 's/]//g' | tr "[" "\n" | grep -v 'name\|tags')
-        error="$tag_list | grep NAME_UNKNOWN | wc -l"
-        if [ "$2" != "" ] && [ "$error" != "0" ]; then
-          echo "Image is not exists"
-          exit 1
+      check_manifest=${manifest%$'\r'}
+      check=$(echo "${list[@]}" | sed 's/ sha256/,sha256/g' | tr ' ' '\n' \
+      | tr ',' ' ' | grep  $check_manifest | awk '{print $1}')
+      check_number=$(echo "$check" |  wc -l)
+      if  [ "$check_number" != "1" ]; then
+        promptyn () {
+            while true; do
+                read -p "$1 " yn
+                case $yn in
+                    [Yy]* ) return 0;;
+                    [Nn]* ) return 1;;
+                    * ) echo "Please answer yes or no.";;
+                esac
+            done
+        }
+        if promptyn "Do you want to delete this repositories?"$'\n\n'"$check"$'\n'"(Yy/Nn)?"; then
+            echo "delete process running"
         else
-          for tag in $tag_list
-          do
-          manifest=$(curl -l -k -v -u $secret \
-            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -I \
-            "$registry/v2/$image/manifests/$tag" 2>/dev/null \
-            | grep "Docker-Content-Digest" | awk '{ print $2 }' | tr "\r" " ")
-            echo "$manifest $tag |  grep $manifest |  awk '{ print $2 }'"
-          done
-          echo ""
-          exit 1
+            echo "exit"
+            exit 1
         fi
       fi
       URL=$registry/v2/$image/manifests/$manifest
       URL=${URL%$'\r'}
+      echo $URL
       curl -u $secret -X DELETE $URL 2>/dev/null
       echo $image
       echo "$tag deleted"
