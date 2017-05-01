@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -e
 
 uname=$(cat .secret | grep "DOCKER_REGISTRY_USER" \
@@ -11,7 +10,7 @@ registry=$(cat .secret | grep "DOCKER_REGISTRY_URL" \
 secret=$uname:$pass
 header='Accept: application/vnd.docker.distribution.manifest.v2+json'
 
-catalog=$(curl -s -u $secret -X GET "$registry/v2/_catalog" \
+catalog=$(curl -s -k -u $secret -X GET "$registry/v2/_catalog" \
   | jq -r ' .repositories | join ("\n")')
 
 
@@ -34,7 +33,7 @@ case "$1" in
     do
       echo "$image"
 
-      tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
+      tag_list=$(curl -s -k -u $secret -X GET "$registry/v2/$image/tags/list" \
         | jq -r 'select(.tags != null) | .tags | join ("\n")' | sort)
 
       error=$(echo $tag_list | grep NAME_UNKNOWN | wc -l)
@@ -45,7 +44,7 @@ case "$1" in
       else
         for tag in $tag_list
         do
-        manifest=$(curl -l -k -u $secret \
+        manifest=$(curl -l -s -k -u $secret \
           -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
           | grep "Docker-Content-Digest" | awk '{ print $2 }' | tr "\r" " ")
           echo "$manifest $tag"
@@ -69,7 +68,7 @@ case "$1" in
   fi
   for image in $images
   do
-    tag_list=$(curl -s -u $secret -X GET "$registry/v2/$image/tags/list" \
+    tag_list=$(curl -k -s -u $secret -X GET "$registry/v2/$image/tags/list" \
       | tr "," "\n" | sed 's/[\(,"}]//g' | sed 's/]//g' | tr "[" "\n" | grep -v 'name\|tags')
     error=$(echo $tag_list | grep NAME_UNKNOWN | wc -l)
     if [ "$2" != "" ] && [ "$error" != 0 ]; then
@@ -116,7 +115,7 @@ case "$1" in
       URL=$registry/v2/$image/manifests/$manifest
       URL=${URL%$'\r'}
       echo $URL
-      curl -u $secret -X DELETE $URL 2>/dev/null
+      curl -k -u $secret -X DELETE $URL 2>/dev/null
       echo $image
       echo "$tag deleted"
     done
