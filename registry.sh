@@ -181,7 +181,7 @@ case "$1" in
     echo "    -c --catalog:    list of repositories" >&2
     echo "    -l --list     list of repositories and tags" >&2
     echo "    -d --delete     list of repositories and tags" >&2
-    echo "    -curator        delete x days older image"
+    echo "    -curator        delete x days older image" >&2
     exit 1
     ;;
 esac
