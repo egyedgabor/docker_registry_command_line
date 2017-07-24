@@ -1,11 +1,13 @@
 #!/bin/bash
 set -e
 
-uname=$(cat .secret | grep "DOCKER_REGISTRY_USER" \
+uname=$(cat .env | grep "DOCKER_REGISTRY_USER" \
         | tr "=" " " | awk '{print $2}')
-pass=$(cat .secret | grep "DOCKER_REGISTRY_PASSWORD" \
+pass=$(cat .env | grep "DOCKER_REGISTRY_PASSWORD" \
         | tr "=" " " | awk '{print $2}')
-registry=$(cat .secret | grep "DOCKER_REGISTRY_URL" \
+registry=$(cat .env | grep "DOCKER_REGISTRY_URL" \
+        | tr "=" " " | awk '{print $2}')
+days=$(cat .env | grep "ROTATE_DAYS" \
         | tr "=" " " | awk '{print $2}')
 secret=$uname:$pass
 header='Accept: application/vnd.docker.distribution.manifest.v2+json'
@@ -121,12 +123,65 @@ case "$1" in
     done
   done
   ;;
+  -curator|--curator)
+  if [ "$2" != "" ]; then
+    catalog="$2"
+  fi
+  for image in ${catalog}
+  do
+    DATE1=$(date +%Y-%m-%d)
+    DAYS=$(echo $(( $days*86400 )))
+    tag_list=$(curl -s -k -u $secret -X GET "$registry/v2/$image/tags/list" \
+        | jq -r 'select(.tags != null) | .tags | join ("\n")' | sort)
+    list=()
+    latest=$(curl -l -k -v -u $secret \
+      -H "$header" -I "$registry/v2/$image/manifests/latest" 2>/dev/null \
+      | grep "Docker-Content-Digest" | awk '{ print $2 }')
+    for tag in $tag_list
+    do
+      manifest=$(curl -l -k -v -u $secret \
+        -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
+        | grep "Docker-Content-Digest" | awk '{ print $2 }' | tr "\r" " ")
+      list+=("${tag} ${manifest}")
+    done
+    for tag in $tag_list
+    do
+      LIST1=$(echo $DATE1 | tr '-' '\n')
+      readarray -t lines < <(echo "$LIST1")
+      DATE1=$(echo "${lines[0]}-${lines[1]}-${lines[2]}")
+
+      DATE2="$tag"
+      if [ "$DATE2" != "latest" ]; then
+        LIST2=$(echo $DATE2 | tr '-' '\n')
+        readarray -t lines < <(echo "$LIST2")
+        DATE2=$(echo "${lines[0]}-${lines[1]}-${lines[2]}")
+
+        DIFF=$(echo $(( ( $(date -ud $DATE1 +'%s') - $(date -ud $DATE2 +'%s') ) )))
+        DIFF=$(echo $(( $DIFF )))
+        echo $DATE2
+        if [ $DIFF -gt $DAYS ]; then
+          manifest=$(curl -l -k -v -u $secret \
+            -H "$header" -I "$registry/v2/$image/manifests/$tag" 2>/dev/null \
+            | grep "Docker-Content-Digest" | awk '{ print $2 }')
+          check=$(echo "$manifest" | grep "$latest" | wc -l)
+          if [ $check != 1 ]; then
+            URL=$registry/v2/$image/manifests/$manifest
+            URL=${URL%$'\r'}
+            curl -k -u $secret -X DELETE $URL 2>/dev/null
+            echo "$tag deleted"
+          fi
+        fi
+      fi
+    done
+  done
+  ;;
   *)
     echo "usage: registry.sh [-c|--catalog|-l|--list|-d|--delete] \
     ['images'] ['tags']" >&2
     echo "    -c --catalog:    list of repositories" >&2
     echo "    -l --list     list of repositories and tags" >&2
     echo "    -d --delete     list of repositories and tags" >&2
+    echo "    -curator        delete x days older image"
     exit 1
     ;;
 esac
